@@ -559,10 +559,52 @@ class CallDecl:
             return TypedExprDecl(return_tp, cls(callable_ref, tuple(results)))
         raise ValueError(f"Could not find callable ref for call {call}")
 
+    def _to_egg(self, mod_decls: ModuleDeclarations) -> tuple[str, tuple[TypedExprDecl, ...]]:
+      return mod_decls.get_egg_fn(self.callable), self.args
+
     def to_egg(self, mod_decls: ModuleDeclarations) -> bindings.Call:
         """Convert a Call to an egg Call."""
         egg_fn = mod_decls.get_egg_fn(self.callable)
-        return bindings.Call(egg_fn, [a.to_egg(mod_decls) for a in self.args])
+        args: list[bindings.Call | bindings.Var | bindings.Lit] = []
+        stack = list(self.args)
+        idxs = []
+        fns = []
+        arities = []
+        x = 0
+        while stack:
+          x+=1
+          curr_arg = stack[-1]
+          print(f"\t{x}: {stack=}")
+          print(f"\t{x}: {args=}")
+          print(f"\t{x}: {arities=}")
+          print(f"\t{x}: {idxs=}")
+          print(f"\t{x}: {fns=}")
+          if idxs and idxs[-1] == len(stack):
+            call_args = args[-arities[-1]::-1]
+            args = args[:-arities[-1]]
+            args.append(bindings.Call(fns[-1], call_args))
+            fns.pop()
+            idxs.pop()
+            stack.pop()
+            arities.pop()
+          elif isinstance(curr_arg.expr, (VarDecl, LitDecl)):
+              args.append(curr_arg.expr.to_egg(mod_decls))
+              stack.pop()
+          else:
+              assert isinstance(curr_arg.expr, CallDecl), f"Unexpected {curr_arg}!"
+              fn, a_args = curr_arg.expr._to_egg(mod_decls)
+              if not a_args:
+                args.append(bindings.Call(fn, []))
+                stack.pop()
+              else:
+                idxs.append(len(stack))
+                fns.append(fn)
+                arities.append(len(a_args))
+                stack.extend(a_args)
+
+        args.reverse()
+        print(f"RESULT:\t({egg_fn} {args})")
+        return bindings.Call(egg_fn, args)
 
     def pretty(self, parens=True, **kwargs) -> str:
         """
